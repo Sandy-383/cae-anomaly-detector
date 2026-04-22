@@ -2,12 +2,10 @@ import torch
 import torch.nn as nn
 
 
-class ConvAutoencoder(nn.Module):
+class Encoder(nn.Module):
     def __init__(self):
-        super(ConvAutoencoder, self).__init__()
-
-        # Encoder
-        self.encoder = nn.Sequential(
+        super().__init__()
+        self.net = nn.Sequential(
             # Block 1: 128x128 -> 64x64
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
@@ -45,8 +43,14 @@ class ConvAutoencoder(nn.Module):
             nn.MaxPool2d(2, 2),
         )
 
-        # Decoder
-        self.decoder = nn.Sequential(
+    def forward(self, x):
+        return self.net(x)
+
+
+class Decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(
             # Block 1: 8x8 -> 16x16
             nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2),
             nn.BatchNorm2d(128),
@@ -76,10 +80,51 @@ class ConvAutoencoder(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, x):
-        latent = self.encoder(x)
-        reconstructed = self.decoder(latent)
-        return reconstructed
+    def forward(self, z):
+        return self.net(z)
 
-    def encode(self, x):
-        return self.encoder(x)
+
+class Discriminator(nn.Module):
+    """DCGAN-style discriminator. Outputs logits (no Sigmoid — use BCEWithLogitsLoss)."""
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1),     # 128->64
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),   # 64->32
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),  # 32->16
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 1, kernel_size=4, stride=2, padding=1),    # 16->8
+            nn.AdaptiveAvgPool2d(1),                                    # 8->1x1
+        )
+
+    def forward(self, x):
+        return self.net(x).view(-1)  # [B] logits
+
+
+class GANomalyNet(nn.Module):
+    """
+    GANomaly for unsupervised anomaly detection.
+
+    Generator  : Encoder1 → Decoder  (learns to reconstruct normal images)
+    Encoder2   : re-encodes the reconstruction back to latent space
+    Discriminator: real vs reconstructed classifier
+
+    Anomaly score = MSE(Encoder1(x), Encoder2(Generator(x)))
+    High score → latent representations diverge → anomaly
+    """
+    def __init__(self):
+        super().__init__()
+        self.encoder1      = Encoder()
+        self.decoder       = Decoder()
+        self.encoder2      = Encoder()
+        self.discriminator = Discriminator()
+
+    def forward(self, x):
+        z1    = self.encoder1(x)
+        x_hat = self.decoder(z1)
+        z2    = self.encoder2(x_hat)
+        return x_hat, z1, z2

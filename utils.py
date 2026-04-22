@@ -36,17 +36,28 @@ def load_image_tensor(image_source):
 
 # ─── Anomaly Scoring ──────────────────────────────────────────────────────────
 
-def compute_anomaly_score(original_tensor, reconstructed_tensor):
+def compute_anomaly_score(original_tensor, reconstructed_tensor, z1=None, z2=None):
     """
-    Compute pixel-wise MSE between original and reconstructed.
+    Compute anomaly score and per-pixel error map.
+
+    GANomaly mode (z1, z2 provided):
+        score = MSE(z1, z2) — latent space divergence between encoder1(x) and encoder2(G(x))
+    Fallback (no z1/z2):
+        score = mean pixel-wise MSE (plain autoencoder behaviour)
+
+    error_map is always pixel-wise reconstruction error for heatmap visualization.
+
     Returns:
-        score (float): mean reconstruction error (anomaly score)
+        score (float): anomaly score
         error_map (np.ndarray): [H, W] per-pixel error map
     """
     with torch.no_grad():
-        diff = (original_tensor - reconstructed_tensor) ** 2          # [1,3,H,W]
+        diff = (original_tensor - reconstructed_tensor) ** 2
         error_map = diff.squeeze(0).mean(dim=0).cpu().numpy()         # [H,W]
-        score = float(error_map.mean())
+        if z1 is not None and z2 is not None:
+            score = float(torch.mean((z1 - z2) ** 2).item())
+        else:
+            score = float(error_map.mean())
     return score, error_map
 
 

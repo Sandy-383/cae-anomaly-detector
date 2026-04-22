@@ -15,7 +15,7 @@ import streamlit as st
 import torch
 from PIL import Image
 
-from model import ConvAutoencoder
+from model import GANomalyNet
 from utils import (
     load_image_tensor,
     compute_anomaly_score,
@@ -283,7 +283,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 @st.cache_resource
 def load_model(weights_path):
-    model = ConvAutoencoder().to(DEVICE)
+    model = GANomalyNet().to(DEVICE)
     if os.path.exists(weights_path):
         state = torch.load(weights_path, map_location=DEVICE)
         model.load_state_dict(state)
@@ -300,7 +300,7 @@ st.markdown("""
   <div class="icon">🔬</div>
   <div>
     <h1>ANOMALYLENS</h1>
-    <p>CONVOLUTIONAL AUTOENCODER · MULTI-MATERIAL DEFECT DETECTION · UNSUPERVISED</p>
+    <p>GANOMALY · MULTI-MATERIAL DEFECT DETECTION · UNSUPERVISED</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -347,10 +347,11 @@ with st.sidebar:
     st.markdown('<div class="card-title">ℹ HOW IT WORKS</div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="info-box">
-    1. Encoder compresses image → latent<br>
+    1. Encoder1 compresses image → latent z1<br>
     2. Decoder reconstructs the image<br>
-    3. High MSE error = anomaly<br>
-    4. Each material has its own model
+    3. Encoder2 re-encodes reconstruction → z2<br>
+    4. High MSE(z1, z2) = anomaly<br>
+    5. Each material has its own model
     </div>
     """, unsafe_allow_html=True)
 
@@ -442,8 +443,8 @@ if input_image is not None:
         tensor, img_resized = load_image_tensor(input_image)
         tensor = tensor.to(DEVICE)
         with torch.no_grad():
-            reconstructed = model(tensor)
-        score, error_map = compute_anomaly_score(tensor.cpu(), reconstructed.cpu())
+            x_hat, z1, z2 = model(tensor)
+        score, error_map = compute_anomaly_score(tensor.cpu(), x_hat.cpu(), z1.cpu(), z2.cpu())
         is_anomaly = score > threshold
 
     # ── Verdict ──
@@ -463,7 +464,7 @@ if input_image is not None:
         <div class="value">{cfg['icon']} {selected_material}</div>
       </div>
       <div class="metric-pill">
-        <div class="label">Reconstruction Error</div>
+        <div class="label">Latent Score</div>
         <div class="value">{score:.5f}</div>
       </div>
       <div class="metric-pill">
@@ -485,7 +486,7 @@ if input_image is not None:
 
     # ── Visual Analysis ──
     st.markdown('<div class="card-title">🖼 VISUAL ANALYSIS</div>', unsafe_allow_html=True)
-    comparison_fig = build_comparison_figure(img_resized, reconstructed.cpu(), error_map, score, threshold)
+    comparison_fig = build_comparison_figure(img_resized, x_hat.cpu(), error_map, score, threshold)
     st.image(comparison_fig, use_container_width=True)
 
     # ── Error Gauge ──
