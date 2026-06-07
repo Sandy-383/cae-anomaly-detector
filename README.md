@@ -127,7 +127,5 @@ cae-anomaly-detector/
 
 Tune using the sidebar slider based on your validation set.
 
----
 
-## 📄 License
-MIT — Free for academic and personal use.
+
